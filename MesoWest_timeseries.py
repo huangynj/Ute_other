@@ -8,7 +8,7 @@ import datetime
 import json
 import urllib2
 
-token = '0123456789' #Request your own token at http://mesowest.org/api/signup/
+token = '1234567890' #Request your own token at http://mesowest.org/api/signup/
 
 variables = 'wind_direction,wind_speed,wind_gust,air_temp,dew_point_temperature,relative_humidity'
 
