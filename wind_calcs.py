@@ -5,6 +5,23 @@
 
 import numpy as np
 
+def wind_spddir_to_uv(wspd,wdir):
+    """
+    calculated the u and v wind components from wind speed and direction
+    Input:
+        wspd: wind speed
+        wdir: wind direction
+    Output:
+        u: u wind component
+        v: v wind component
+    """    
+    
+    rad = 4.0*np.arctan(1)/180.
+    u = -wspd*np.sin(rad*wdir)
+    v = -wspd*np.cos(rad*wdir)
+
+    return u,v
+
 def wind_uv_to_dir(U,V):
     """
     Calculates the wind direction from the u and v component of wind.
