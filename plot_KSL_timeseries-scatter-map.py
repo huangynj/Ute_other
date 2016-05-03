@@ -46,7 +46,7 @@ def download_sounding(request_sounding):
     # Wyoming URL to download Sounding from
     url = 'http://weather.uwyo.edu/cgi-bin/sounding?region=naconf&TYPE=TEXT%3ALIST&YEAR='+year+'&MONTH='+month+'&FROM='+day+hour+'&TO='+day+hour+'&STNM='+stn
     content = urllib2.urlopen(url).read()
-   
+    print 'sounding url:', url
     
     # 2)
     # Remove the html tags
@@ -88,7 +88,7 @@ def download_mobile(platform,requested_time,previous_mins):
     
     url = 'http://meso2.chpc.utah.edu/gslso3s/cgi-bin/download_mobile_data.cgi?yr='+year+'&mo='+month+'&dy='+day+'&hr='+hour+'&mm='+minute+'&min='+previous_mins+'&stid='+platform
 
-    print url
+    print platform, 'download:', url
 
     rawdata = urllib2.urlopen(url).read()
     splitted = rawdata.split("\n",rawdata.count("\n"))
@@ -120,6 +120,9 @@ def download_mobile(platform,requested_time,previous_mins):
         lat = data['cr1000_gpslat_dd']
         lon = data['cr1000_gpslon_dd']
         elevation = data['cr1000_gpselev_m']
+        
+        elevation[elevation==-9999] = np.nan        
+        
         try:    
             pressure = data['cr1000_pres_hpa']
         except:
@@ -140,10 +143,11 @@ def download_mobile(platform,requested_time,previous_mins):
         return data    
     
 def plot_ozone_timeseries(mobile):
+    print""    
+    print "--plot time series--"    
     """
     Input, the ksl_mobile data
-    """
-    
+    """    
     
     width=3.5
     height=2
@@ -167,38 +171,57 @@ def plot_ozone_timeseries(mobile):
     #ax1a.set_ylim([1200,4700])
     ax1a.legend(bbox_to_anchor=(0, 1.0,.8, .12),fontsize=7,frameon=False)
     
-    # Set tick marks where we want them
-    minutes10 = MinuteLocator(byminute=range(0,60,10))
-    minutes5  = MinuteLocator(byminute=range(5,60,10))
-    dateFmt = DateFormatter('%b %d\n%H:%M')
-    blank_dateFmt = DateFormatter('')    
-    # Set the x-axis major tick marks
-    ax1.xaxis.set_major_locator(minutes10)
-    # Set the x-axis labels
-    ax1.xaxis.set_major_formatter(blank_dateFmt)
-    # For additional, unlabeled ticks, set x-axis minor axis
-    ax1.xaxis.set_minor_locator(minutes5)
-    ax1.xaxis.set_major_formatter(dateFmt)
+    duration = (mobile['DATES'][-1]-mobile['DATES'][0]).seconds/3600.  # flight duration in hours  
+    print 'flight duration (hours)', duration    
     
+    if duration > 1:
+        # Set major ticks every 20 mins
+        minutes20 = MinuteLocator(byminute=range(0,60,20))
+        minutes10  = MinuteLocator(byminute=range(0,60,10))
+        dateFmt = DateFormatter('%b %d\n%H:%M')
+        blank_dateFmt = DateFormatter('')    
+        # Set the x-axis major tick marks
+        ax1.xaxis.set_major_locator(minutes20)
+        # Set the x-axis labels
+        ax1.xaxis.set_major_formatter(blank_dateFmt)
+        # For additional, unlabeled ticks, set x-axis minor axis
+        ax1.xaxis.set_minor_locator(minutes10)
+        ax1.xaxis.set_major_formatter(dateFmt)
+    else:
+        # Set major tickes every 10 mins
+        minutes10 = MinuteLocator(byminute=range(0,60,10))
+        minutes5  = MinuteLocator(byminute=range(5,60,10))
+        dateFmt = DateFormatter('%b %d\n%H:%M')
+        blank_dateFmt = DateFormatter('')    
+        # Set the x-axis major tick marks
+        ax1.xaxis.set_major_locator(minutes10)
+        # Set the x-axis labels
+        ax1.xaxis.set_major_formatter(blank_dateFmt)
+        # For additional, unlabeled ticks, set x-axis minor axis
+        ax1.xaxis.set_minor_locator(minutes5)
+        ax1.xaxis.set_major_formatter(dateFmt)
+            
     
     # Save the figure
     plt.savefig(FIGDIR+string_time+'_'+mobile['platform']+'_timeseries_ozone-elevation.png',dpi=1000,bbox_inches="tight")
     print "saved ozone time series"
+    print ""
 
 def plot_ozone_theta_scatter(mobile):
-      
+    print "--plot scatter--" 
     width=3.5
     height=3.5    
     
     fig, (ax1) = plt.subplots(1,1,figsize=(width,height))
-    
+        
     # Bottom axis: ozone concentration
     ax1.scatter(mobile['ozone'],mobile['elevation'],color='purple',s=3,label="Ozone")
     ax1.set_ylabel('Elevation (m)',fontsize=label_font)
     ax1.set_xlabel('Ozone (ppb)',fontsize=label_font)
     #ax1.set_yticks(range(1200,4701,500))
 
-    max_ozone_elevation = mobile['elevation'].max()+100 
+    max_ozone_elevation = np.nanmax(mobile['elevation'])+100 
+
     
     ax1.set_ylim([1200,max_ozone_elevation])
     #ax1.set_xticks(range(45,76,5))
@@ -208,12 +231,17 @@ def plot_ozone_theta_scatter(mobile):
     
     ## Top axis: Potential Temperature
     # If request_time is in the afternoon, then request the evening sounding
-    if request_time.hour > 12:
-        # Get the evening sounding (00 UTC)
+    if request_time.hour > 18:
+        # Get the evening sounding (00 UTC) for the next day
         request_sounding = datetime(request_time.year,request_time.month,request_time.day+1,0)    
+    elif request_time.hour < 6:
+        # Get the evening sounding (00 UTC) for the same
+        request_sounding = datetime(request_time.year,request_time.month,request_time.day,0)    
     else:
-        # Get the morning sounding (12 UTC)
+        # Get the morning sounding (12 UTC) for the same day
         request_sounding = datetime(request_time.year,request_time.month,request_time.day,12)
+    
+    print "SLC sounding for", request_sounding
     
     sound_file = download_sounding(request_sounding)
     col_names = ['PRES','HGHT','TEMP','DWPT','RELH','MIXR','DRCT','SKNT','THTA','THTE','THTV']
@@ -221,10 +249,12 @@ def plot_ozone_theta_scatter(mobile):
     
     height_asl = sound_data['HGHT']
     theta = sound_data['THTA']
+
     
     # Set xlim for potential temperature the creative way (this will scale it right)    
-    theta_xmax = (theta[height<4700]).max()+3    
-    theta_xmin = (theta[height<4700]).min()-3    
+    theta_xmax = (theta[height_asl<4700]).max()+3    
+    theta_xmin = (theta[height_asl<4700]).min()-3    
+       
     
     ax1a = ax1.twiny()
     ax1a.plot(theta,height_asl,color='darkred',lw=lw,label='Potential Temperature')
@@ -236,8 +266,10 @@ def plot_ozone_theta_scatter(mobile):
     
     plt.savefig(FIGDIR+string_time+'_'+mobile['platform']+'_scatter_ozone-theta.png',dpi=1000,bbox_inches="tight")
     print "saved scatter plot"
+    print ""
 
 def plot_map(mobile,other_mobile=False,auto_map_boundaries=True,background='WRF'):
+    print "--plot map--"    
     """
     makes a map of the helicopter observations. Also plots MesoWest
     input: mobile=ksl observations from the get moblie function
@@ -332,33 +364,34 @@ def plot_map(mobile,other_mobile=False,auto_map_boundaries=True,background='WRF'
     cbar.ax.tick_params(labelsize=8)
     cbar.set_ticks([45,50,55,60,65,70,75,80,85])
     
-    # Plot Other Mobile data if available
+    # Plot Other Mobile data
     if other_mobile == True:
         # Plot Mobile Ozone points (TRAX01)
         try:
             x,y = m(trax_mobile['longitude'],trax_mobile['latitude']) 
-            m.scatter(x[:],y[:],c=trax_mobile['ozone'][:],vmax=80,vmin=45.,lw = .3,s=30,cmap=plt.cm.get_cmap('jet'),zorder=50)
+            m.scatter(x[:],y[:],c=trax_mobile['ozone'][:],vmax=80,vmin=45.,lw = .3,marker='d',s=30,cmap=plt.cm.get_cmap('jet'),zorder=50)
         except:
             print 'no TRAX01 data'
             
         # Plot Mobile Truck points (UUTK3)
         try:
             x,y = m(trk3_mobile['longitude'],trk3_mobile['latitude']) 
-            m.scatter(x[:],y[:],c=trk3_mobile['ozone'][:],vmax=80,vmin=45.,lw = .3,s=30,cmap=plt.cm.get_cmap('jet'),zorder=50)
+            m.scatter(x[:],y[:],c=trk3_mobile['ozone'][:],vmax=80,vmin=45.,lw = .3,marker='p',s=30,cmap=plt.cm.get_cmap('jet'),zorder=50)
         except:
             print 'no UUTK3 data'
         
         # Plot Mobile Truck points (UUTK1)
         try:
             x,y = m(trk1_mobile['longitude'],trk1_mobile['latitude']) 
-            m.scatter(x[:],y[:],c=trk1_mobile['ozone'][:],vmax=80,vmin=45.,lw = .3,s=30,cmap=plt.cm.get_cmap('jet'),zorder=50)
+            m.scatter(x[:],y[:],c=trk1_mobile['ozone'][:],vmax=80,vmin=45.,lw = .3,marker='p',s=30,cmap=plt.cm.get_cmap('jet'),zorder=50)
         except:
-            print 'no UUTK3 data'
+            print 'no UUTK1 data'
     
     
     ## Plot MesoWest  (top of the hour, +/- 10 mins) 
     # Plot MesoWest wind data
     mesowest_time = str(request_time.year).zfill(2)+str(request_time.month).zfill(2)+str(request_time.day).zfill(2)+str(request_time.hour).zfill(2)+'00'
+    print 'plotting mesowest observations within 10 minutes of top of the hour',mesowest_time    
     a = get_mesowest_radius_winds(mesowest_time,'10')
     u,v = wind_spddir_to_uv(a['WIND_SPEED'],a['WIND_DIR'])
     m.barbs(a['LON'],a['LAT'],u,v,
@@ -383,46 +416,49 @@ def plot_map(mobile,other_mobile=False,auto_map_boundaries=True,background='WRF'
     
     plt.savefig(FIGDIR+string_time+'_map.png',dpi=500,bbox_inches="tight")
     print 'saved map'
+    print ""
 
   
 #------------------------------------------------------------------------------  
 #------------------------------------------------------------------------------  
 
-
-# Specify place to save the figures    
-FIGDIR = './figs/'
-# If that directory doesn't exist then create it
-if not os.path.exists(FIGDIR):
-    os.makedirs(FIGDIR)
-
-
-
-# Different case studies 
-# add to this list          'Name': [endtime,previous minutes]
-cases = {
-        'Smoke1':[datetime(2015, 8,18,23,20),30],
-        'Smoke2':[datetime(2015, 8,19,23,20),30],
-        'Lake Breeze':[datetime(2015, 6,18,23,40),60],
-}
-
-
-#set the case name you want, from the cases dictinary
-request_case = 'Lake Breeze'
-
-
-request_time = cases[request_case][0]
-previous_mins = cases[request_case][1]
-string_time = request_time.strftime('%Y%m%d%H%M')
-
-
-# Get Mobile Data sets if they are available
-ksl_mobile = download_mobile('KSL5',request_time,previous_mins)           # KSL Helicopter
-trax_mobile = download_mobile('TRX01',request_time,previous_mins)         # UTA TRAX
-trk1_mobile = download_mobile('UUTK1',request_time,previous_mins)         # UUTruck
-trk3_mobile = download_mobile('UUTK3',request_time,previous_mins)         # UUTruck
-
-# Make Plots
-plot_ozone_timeseries(ksl_mobile)
-plot_ozone_theta_scatter(ksl_mobile)
-plot_map(ksl_mobile,other_mobile=True,background='topo')
-
+if __name__ == '__main__':
+    # Specify place to save the figures    
+    FIGDIR = './figs/'
+    # If that directory doesn't exist then create it
+    if not os.path.exists(FIGDIR):
+        os.makedirs(FIGDIR)
+    
+    
+    
+    # Different case studies 
+    # add to this list          'Name': [endtime UTC, previous minutes]
+    cases = {
+            'Smoke1':[datetime(2015, 8,18,23,20),30],
+            'Smoke2':[datetime(2015, 8,19,23,20),30],
+            'Lake Breeze':[datetime(2015, 6,18,23,40),60],
+            'Morning':[datetime(2016, 5,3,13,20),180],
+    }
+    
+    
+    #set the case name you want, from the cases dictinary
+    request_case = 'Lake Breeze'
+    
+    
+    request_time = cases[request_case][0]
+    previous_mins = cases[request_case][1]
+    string_time = request_time.strftime('%Y%m%d%H%M')
+    
+    print 'plotting', request_time, 'and previous', previous_mins, 'minutes'
+    
+    # Get Mobile Data sets if they are available
+    ksl_mobile = download_mobile('KSL5',request_time,previous_mins)           # KSL Helicopter
+    trax_mobile = download_mobile('TRX01',request_time,previous_mins)         # UTA TRAX
+    trk1_mobile = download_mobile('UUTK1',request_time,previous_mins)         # UUTruck
+    trk3_mobile = download_mobile('UUTK3',request_time,previous_mins)         # UUTruck
+    
+    # Make Plots
+    plot_ozone_timeseries(ksl_mobile)
+    plot_ozone_theta_scatter(ksl_mobile)
+    plot_map(ksl_mobile,other_mobile=True,background='topo')
+    
