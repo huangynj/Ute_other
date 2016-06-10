@@ -53,4 +53,8 @@ def download_sounding(year,month,day,hour):
         f.write(line+'\n')
     f.close()
     
+    # Returns the sounding directroy and file string.
     return Sounding_dir+Sounding_filename
+    
+    
+
