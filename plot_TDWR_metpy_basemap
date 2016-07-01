@@ -1,0 +1,101 @@
+### Brian Blaylock
+
+# 01 July 2016
+
+# Can MetPy read the TDWR level 3 .nids files??
+import os
+import sys
+sys.path.append('/uufs/chpc.utah.edu/common/home/u0553130/pyBKB')  #for running on CHPC boxes
+sys.path.append('B:\pyBKB')  
+from functions_domains_models import *
+
+# Bug fixed for reading TDWR data is located in my local verision of metpy_BB
+from MetPy_BB.io.nexrad import Level3File
+from MetPy_BB.plots import ctables
+
+import numpy as np
+from numpy import ma
+import matplotlib.pyplot as plt
+from pyproj import Geod #this is used to convert range/azimuth to lat/lon
+from mpl_toolkits.basemap import Basemap
+
+# Create a list of all the file names (assuming the directory only contains .nids files)
+# List of file names we want to make plots for
+
+fig, axes = plt.subplots(1,1, figsize=(8, 12))
+#for v, ctable, ax in zip(('N0Q', 'N0U'), ('NWSReflectivity', 'NWSVelocity'), axes):
+v = 'TV0'
+ctable = 'NWSVelocity'
+ax = axes
+
+path = '/uufs/chpc.utah.edu/common/home/horel-group4/gslso3s/data/TDWR/20150619/%s/' % v
+scan = 'Level3_SLC_%s_20150619_0024.nids' % v  
+FILE = path + scan
+
+f = Level3File(FILE)
+
+# Pull the data out of the file object
+datadict = f.sym_block[0][0]
+
+# Turn into an array, then mask
+data = ma.array(datadict['data'])
+data[data==0] = ma.masked
+
+# Grab azimuths and calculate a range based on number of gates
+ 
+az = np.array(datadict['start_az'] + [datadict['end_az'][-1]])
+rng = np.linspace(0, f.max_range, data.shape[-1] + 1)
+
+# Convert az, range to a lat/lon
+g = Geod(ellps='clrk66') # This is the type of ellipse the earth is projected on. 
+                         # There are other types of ellipses you can use,
+                         # but the differences will be small
+center_lat = np.ones([len(az),len(rng)])*f.lat    
+center_lon = np.ones([len(az),len(rng)])*f.lon
+az2D = np.ones_like(center_lat)*az[:,None]
+rng2D = np.ones_like(center_lat)*np.transpose(rng[:,None])*1000
+lon,lat,back=g.fwd(center_lon,center_lat,az2D,rng2D)
+
+
+# Convert az,range to x,y
+xlocs = rng * np.sin(np.deg2rad(az[:, np.newaxis]))
+ylocs = rng * np.cos(np.deg2rad(az[:, np.newaxis]))
+
+# Plot the data
+domain = get_domain('salt_lake_valley')
+top_right_lat = domain['top_right_lat']+.3
+top_right_lon = domain['top_right_lon']
+bot_left_lat = domain['bot_left_lat']-.2
+bot_left_lon = domain['bot_left_lon']-.2
+
+## Map in cylindrical projection (data points may apear skewed)
+m = Basemap(resolution='i',projection='cyl',\
+    llcrnrlon=bot_left_lon,llcrnrlat=bot_left_lat,\
+    urcrnrlon=top_right_lon,urcrnrlat=top_right_lat,)
+maps = [
+    'ESRI_Imagery_World_2D',    # 0
+    'ESRI_StreetMap_World_2D',  # 1
+    'NatGeo_World_Map',         # 2
+    'NGS_Topo_US_2D',           # 3
+    'Ocean_Basemap',            # 4
+    'USA_Topo_Maps',            # 5
+    'World_Imagery',            # 6
+    'World_Physical_Map',       # 7
+    'World_Shaded_Relief',      # 8
+    'World_Street_Map',         # 9
+    'World_Terrain_Base',       # 10
+    'World_Topo_Map'            # 11
+    ]
+     
+## Instead of using WRF terrain fields you can get a high resolution image from ESRI
+m.arcgisimage(service=maps[8], xpixels = 3000, verbose= True)
+m.drawcoastlines()
+m.drawstates()
+
+norm, cmap = ctables.registry.get_with_steps(ctable, 16, 16)
+this = m.pcolormesh(lon, lat, data, norm=norm, cmap=cmap)
+bar = plt.colorbar(this,ax=ax,orientation='horizontal',shrink=.8,pad=.01)
+bar.ax.set_xlabel('Radial Velocity (Units ??)',fontsize=10)
+ax.set_title(scan)
+#ax.set_aspect('equal', 'datalim')
+plt.show()
