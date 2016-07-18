@@ -1,8 +1,11 @@
 ### Brian Blaylock
 
 # 01 July 2016
+# Updates:
+#   18 July 2016    Use the 'data_map' instance to convert 8-bit data to floats in m/s
+#                   Fixed the NWSVelocity colorbar                    
 
-# Can MetPy read the TDWR level 3 .nids files??
+# MetPy read the TDWR level 3 .nids files
 import os
 import sys
 sys.path.append('/uufs/chpc.utah.edu/common/home/u0553130/pyBKB')  #for running on CHPC boxes
@@ -13,36 +16,40 @@ from functions_domains_models import *
 from MetPy_BB.io.nexrad import Level3File
 from MetPy_BB.plots import ctables
 
+from BB_MesoWest.MesoWest_stations_radius import *
+
 import numpy as np
 from numpy import ma
 import matplotlib.pyplot as plt
 from pyproj import Geod #this is used to convert range/azimuth to lat/lon
 from mpl_toolkits.basemap import Basemap
+from datetime import datetime
 
 # Create a list of all the file names (assuming the directory only contains .nids files)
 # List of file names we want to make plots for
 
-fig, axes = plt.subplots(1,1, figsize=(8, 12))
+fig, axes = plt.subplots(1,1, figsize=(3.5, 6))
 #for v, ctable, ax in zip(('N0Q', 'N0U'), ('NWSReflectivity', 'NWSVelocity'), axes):
 v = 'TV0'
 ctable = 'NWSVelocity'
 ax = axes
 
 path = '/uufs/chpc.utah.edu/common/home/horel-group4/gslso3s/data/TDWR/20150619/%s/' % v
-scan = 'Level3_SLC_%s_20150619_0024.nids' % v  
+scan = 'Level3_SLC_%s_20150619_0024.nids' % v
+date = datetime.strptime(scan[-18:-5],'%Y%m%d_%H%M')
 FILE = path + scan
 
 f = Level3File(FILE)
 
-# Pull the data out of the file object
+# Pull the data out of the file object (this stuff is in 8-bit)
 datadict = f.sym_block[0][0]
 
 # Turn into an array, then mask
-data = ma.array(datadict['data'])
-data[data==0] = ma.masked
+data = f.map_data(datadict['data']) # I'm confident this maps the data to floats with units of m/s
+data = ma.array(data)
+data[np.isnan(data)] = ma.masked
 
 # Grab azimuths and calculate a range based on number of gates
- 
 az = np.array(datadict['start_az'] + [datadict['end_az'][-1]])
 rng = np.linspace(0, f.max_range, data.shape[-1] + 1)
 
@@ -56,19 +63,18 @@ az2D = np.ones_like(center_lat)*az[:,None]
 rng2D = np.ones_like(center_lat)*np.transpose(rng[:,None])*1000
 lon,lat,back=g.fwd(center_lon,center_lat,az2D,rng2D)
 
-
-# Convert az,range to x,y
+# Convert az,range to x,y (use these variables if don't want to plot on a basemap. Value is range from the radar.)
 xlocs = rng * np.sin(np.deg2rad(az[:, np.newaxis]))
 ylocs = rng * np.cos(np.deg2rad(az[:, np.newaxis]))
 
-# Plot the data
+# Create Basemap
 domain = get_domain('salt_lake_valley')
 top_right_lat = domain['top_right_lat']+.3
 top_right_lon = domain['top_right_lon']
 bot_left_lat = domain['bot_left_lat']-.2
 bot_left_lon = domain['bot_left_lon']-.2
 
-## Map in cylindrical projection (data points may apear skewed)
+## Map in cylindrical projection
 m = Basemap(resolution='i',projection='cyl',\
     llcrnrlon=bot_left_lon,llcrnrlat=bot_left_lat,\
     urcrnrlon=top_right_lon,urcrnrlat=top_right_lat,)
@@ -88,14 +94,48 @@ maps = [
     ]
      
 ## Instead of using WRF terrain fields you can get a high resolution image from ESRI
-m.arcgisimage(service=maps[8], xpixels = 3000, verbose= True)
+m.arcgisimage(service=maps[8], xpixels = 1000, verbose= True)
 m.drawcoastlines()
 m.drawstates()
 
-norm, cmap = ctables.registry.get_with_steps(ctable, 16, 16)
+# get mesowest winds
+mesowest_time = date.strftime('%Y%m%d%H%M')
+a = get_mesowest_radius_winds(mesowest_time,'10')
+
+
+## Now plot data on basemap
+
+
+# This uses the same colorbar as the NWS Velocity color scheme
+norm, cmap = ctables.registry.get_with_steps(ctable, -20, 2.5)
 this = m.pcolormesh(lon, lat, data, norm=norm, cmap=cmap)
 bar = plt.colorbar(this,ax=ax,orientation='horizontal',shrink=.8,pad=.01)
-bar.ax.set_xlabel('Radial Velocity (Units ??)',fontsize=10)
+bar.ax.set_xlabel('Radial Velocity ($\mathregular{m s^{-1}}$)',fontsize=10)
 ax.set_title(scan)
 #ax.set_aspect('equal', 'datalim')
+# Add MesoWest wind barbs
+u,v = wind_spddir_to_uv(a['WIND_SPEED'],a['WIND_DIR'])
+m.barbs(a['LON'],a['LAT'],u,v,
+        length=5.5,                
+        barb_increments=dict(half=1, full=2, flag=10),
+        sizes=dict(spacing=0.15, height=0.3, emptybarb=.1))
+# Location of TDWR and other observing stations for reference
+m.scatter(-111.93,40.9669, s=75, c='w',zorder=40)               # TDWR
+
+# I personally like the brown/green color scheme better then the NWS red/gree
+fig, axes = plt.subplots(1,1, figsize=(3.5, 6))
+# This uses the brown/green colorbar used in my MS Thesis
+m.arcgisimage(service=maps[8], xpixels = 1000, verbose= True)
+thesis_color = m.pcolormesh(lon,lat,data,cmap="BrBG_r",vmax=10,vmin=-10)
+bar = plt.colorbar(thesis_color,orientation='horizontal',shrink=.8,pad=.01,
+                   label='Radial Velocity ($\mathregular{m s^{-1}}$)')
+# Add Mesowest Wind Barbs
+u,v = wind_spddir_to_uv(a['WIND_SPEED'],a['WIND_DIR'])
+m.barbs(a['LON'],a['LAT'],u,v,
+        length=5.5,                
+        barb_increments=dict(half=1, full=2, flag=10),
+        sizes=dict(spacing=0.15, height=0.3, emptybarb=.1))
+# Location of TDWR and other observing stations for reference
+m.scatter(-111.93,40.9669, s=75, c='w',zorder=40)               # TDWR
+
 plt.show()
