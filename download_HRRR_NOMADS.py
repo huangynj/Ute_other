@@ -48,7 +48,9 @@ def download_hrrr(request_date,fields=['prs', 'sfc','nat'],hour=range(0,24),fore
     day      = request_date.day
 
     # Build the URL string we want to download. One for each field, hour, and forecast
-    URL = 'http://nomads.ncep.noaa.gov/pub/data/nccf/nonoperational/com/hrrr/prod/hrrr.%04d%02d%02d/' % (year,month,day)
+    # Old Download #URL = 'http://nomads.ncep.noaa.gov/pub/data/nccf/nonoperational/com/hrrr/prod/hrrr.%04d%02d%02d/' % (year,month,day)
+    # New (after August 2016)
+    URL = 'http://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/hrrr.%04d%02d%02d/' % (year,month,day)
     for field in fields:
       # Create a new directory for each field to keep things organized
       outdir = outpath +'%s/' % (field) # the path we want to save the file. Put pressure and surface field in different directory
